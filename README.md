@@ -16,8 +16,6 @@ To get started with this analysis, follow the steps below:
 
 2. **Install Dependencies**: Install the necessary Python packages by running the following command:
 
-*Note: A `requirements.txt` file should be created listing all the necessary packages.*
-
 3. **Run the Scripts**:
 - To capture and store the metrics, run:
   ```
