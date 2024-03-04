@@ -1,0 +1,16 @@
+root:
+  repo: "The repository full name (owner/repo format)."
+  monthly_issue_stats:
+    - month: "The month and year for the statistics."
+      num_issues: "The total number of issues."
+      issue_average_close_time: "The average time taken to close issues in hours."
+  monthly_pr_stats:
+    - month: "The month and year for the statistics."
+      num_open_pr: "The number of open pull requests."
+      num_closed_pr: "The number of closed pull requests."
+      num_merged_pr: "The number of merged pull requests."
+      ratio_mergedPR: "The ratio of merged pull requests to closed pull requests."
+      pr_ave_merge_time: "The average time taken to merge pull requests in hours."
+  monthly_pr_comments:
+    - month: "The month and year for the statistics."
+      total_comments: "The total number of comments on pull requests."
