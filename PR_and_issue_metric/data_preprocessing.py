@@ -5,7 +5,7 @@ from scipy.stats import pearsonr
 
 
 # Load the Excel file
-excel_path = 'ASFI List_reduced.xlsx'
+excel_path = 'new_list_w_longest_downturns.xlsx'
 df = pd.read_excel(excel_path)
 df = pd.read_excel(excel_path, converters={
     'downturn_start': str,  # Convert downturn_start to string
@@ -15,7 +15,7 @@ df = pd.read_excel(excel_path, converters={
 })
 
 # Load the JSON file
-json_path = 'selected_projects.json'
+json_path = 'New_proj_metrics.json'
 with open(json_path, 'r') as file:
     data = json.load(file)
 
@@ -27,6 +27,23 @@ for metric in metrics:
     for period in periods:
         df[f'{metric}_{period}'] = None
 
+def extract_first_repo(url):
+    """Extract the first repository name from a URL."""
+    if isinstance(url, str):
+        url = url.strip()
+    else:
+        return None
+    first_url = url.split('|')[0].strip()
+    repo_name = '/'.join(first_url.split('/')[-2:]).replace('.git', '') # Extract the last two components and remove '.git'
+    return repo_name
+
+def parse_date(date_str):
+    """Parse the full date string to a datetime.date object."""
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S").date()
+    except ValueError as e:
+        print(f"Error parsing date: {e}")
+        return None
 
 # Helper functions
 def get_date_range_from_json(json_data):
@@ -50,10 +67,18 @@ def calculate_average_for_period(data, start, end, metric):
                 relevant_data.append(v)
     return sum(relevant_data) / len(relevant_data) if relevant_data else None
 
+df.insert(0, 'actual_start', None)
+df.insert(1, 'actual_end', None)
 
 
 for index, row in df.iterrows():
-    repo_name = row['listname']
+    original_repo_name = row['pj_github_url']
+    if pd.isnull(original_repo_name) or not isinstance(original_repo_name, str):
+        continue  # Skip this row if URL is missing or not a string
+    repo_name = extract_first_repo(original_repo_name)  # Extract and clean repo name from URL
+    if not repo_name:
+        continue  # Skip this row if repo name could not be extracted
+
     repo_status = 'graduated' if repo_name in data['graduated'] else 'retired'
     repo_data = data[repo_status].get(repo_name, {})
 
@@ -64,6 +89,8 @@ for index, row in df.iterrows():
 
     actual_start = datetime.strptime(actual_start_str, "%Y-%m").date()
     actual_end = datetime.strptime(actual_end_str, "%Y-%m").date()
+    df.at[index, 'actual_start'] = actual_start_str
+    df.at[index, 'actual_end'] = actual_end_str
 
     # Ensure that downturn dates are strings and valid
     downturn_start_str = row['downturn_start'] if isinstance(row['downturn_start'], str) else "NaT"
@@ -73,8 +100,10 @@ for index, row in df.iterrows():
         print(f"Skipping repo {repo_name} due to missing downturn dates.")
         continue
 
-    downturn_start = datetime.strptime(downturn_start_str, "%Y-%m").date()
-    downturn_end = datetime.strptime(downturn_end_str, "%Y-%m").date()
+    # downturn_start = datetime.strptime(downturn_start_str, "%Y-%m").date()
+    # downturn_end = datetime.strptime(downturn_end_str, "%Y-%m").date()
+    downturn_start = parse_date(downturn_start_str)
+    downturn_end = parse_date(downturn_end_str)
 
     # Calculate metrics for each period
     for metric in metrics:
@@ -106,70 +135,70 @@ print(f"Updated data saved to {output_excel_path}")
 
 
 
-# Perform correlation analysis
-def encode_graduated_status(status):
-    return 1 if status == 'graduated' else 0
-
-df['graduated_encoded'] = df['status'].apply(encode_graduated_status)
-
-for metric in metrics:
-    for period in periods:
-        col_name = f'{metric}_{period}'
-        # Create a mask for non-zero values
-        non_zero_mask = df[col_name] != 0
-
-        # Ensure there are more than one unique non-zero values for correlation
-        if non_zero_mask.sum() > 1 and len(set(df[col_name][non_zero_mask])) > 1:
-            correlation, p_value = pearsonr(df['graduated_encoded'][non_zero_mask], df[col_name][non_zero_mask])
-            print(f'Correlation for {col_name}: {correlation} (p-value: {p_value})')
-        else:
-            print(f'Cannot compute correlation for {col_name} because there are not enough non-zero values.')
-
-
-
-# 计算并打印相关系数
-correlation, p_value = pearsonr(df['pr_ave_merge_time_post_downturn'].fillna(0), df['graduated_encoded'])
-print(f'Correlation coefficient: {correlation}')
-print(f'p-value: {p_value}')
-
-
-
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-# Set the style for seaborn plots
-sns.set(style="whitegrid")
-
-# Loop through the metrics and periods and create scatter plots
-for metric in metrics:
-    for period in periods:
-        col_name = f'{metric}_{period}'
-        non_zero_df = df[df[col_name] != 0]
-        sns.scatterplot(x=non_zero_df[col_name], y=non_zero_df['graduated_encoded'])
-        plt.title(f'Scatter Plot of {col_name} vs Graduated Status')
-        plt.xlabel(col_name)
-        plt.ylabel('Graduated Status (Encoded)')
-        plt.show()
-
-# Create a new DataFrame to store correlations and p-values
-correlation_matrix = pd.DataFrame(index=metrics, columns=periods)
-
-# Calculate correlations and store them
-for metric in metrics:
-    for period in periods:
-        col_name = f'{metric}_{period}'
-        # Filter out rows where the metric is zero before calculating correlation
-        non_zero_df = df[df[col_name] != 0]
-        # Ensure that we have more than one unique value for correlation to be defined
-        if non_zero_df[col_name].nunique() > 1:
-            correlation, p_value = pearsonr(non_zero_df['graduated_encoded'], non_zero_df[col_name])
-            # Store the correlation if p-value is less than 0.05 (significant)
-            correlation_matrix.at[metric, period] = correlation if p_value < 0.05 else None
-        else:
-            # If only one unique value, correlation is not defined
-            correlation_matrix.at[metric, period] = None
-
-# Plot a heatmap
-sns.heatmap(correlation_matrix.astype(float), annot=True, fmt=".2f", cmap='coolwarm')
-plt.title('Heatmap of Correlation Coefficients')
-plt.show()
+# # Perform correlation analysis
+# def encode_graduated_status(status):
+#     return 1 if status == 'graduated' else 0
+#
+# df['graduated_encoded'] = df['status'].apply(encode_graduated_status)
+#
+# for metric in metrics:
+#     for period in periods:
+#         col_name = f'{metric}_{period}'
+#         # Create a mask for non-zero values
+#         non_zero_mask = df[col_name] != 0
+#
+#         # Ensure there are more than one unique non-zero values for correlation
+#         if non_zero_mask.sum() > 1 and len(set(df[col_name][non_zero_mask])) > 1:
+#             correlation, p_value = pearsonr(df['graduated_encoded'][non_zero_mask], df[col_name][non_zero_mask])
+#             print(f'Correlation for {col_name}: {correlation} (p-value: {p_value})')
+#         else:
+#             print(f'Cannot compute correlation for {col_name} because there are not enough non-zero values.')
+#
+#
+#
+# # 计算并打印相关系数
+# correlation, p_value = pearsonr(df['pr_ave_merge_time_post_downturn'].fillna(0), df['graduated_encoded'])
+# print(f'Correlation coefficient: {correlation}')
+# print(f'p-value: {p_value}')
+#
+#
+#
+# import matplotlib.pyplot as plt
+# import seaborn as sns
+#
+# # Set the style for seaborn plots
+# sns.set(style="whitegrid")
+#
+# # Loop through the metrics and periods and create scatter plots
+# for metric in metrics:
+#     for period in periods:
+#         col_name = f'{metric}_{period}'
+#         non_zero_df = df[df[col_name] != 0]
+#         sns.scatterplot(x=non_zero_df[col_name], y=non_zero_df['graduated_encoded'])
+#         plt.title(f'Scatter Plot of {col_name} vs Graduated Status')
+#         plt.xlabel(col_name)
+#         plt.ylabel('Graduated Status (Encoded)')
+#         plt.show()
+#
+# # Create a new DataFrame to store correlations and p-values
+# correlation_matrix = pd.DataFrame(index=metrics, columns=periods)
+#
+# # Calculate correlations and store them
+# for metric in metrics:
+#     for period in periods:
+#         col_name = f'{metric}_{period}'
+#         # Filter out rows where the metric is zero before calculating correlation
+#         non_zero_df = df[df[col_name] != 0]
+#         # Ensure that we have more than one unique value for correlation to be defined
+#         if non_zero_df[col_name].nunique() > 1:
+#             correlation, p_value = pearsonr(non_zero_df['graduated_encoded'], non_zero_df[col_name])
+#             # Store the correlation if p-value is less than 0.05 (significant)
+#             correlation_matrix.at[metric, period] = correlation if p_value < 0.05 else None
+#         else:
+#             # If only one unique value, correlation is not defined
+#             correlation_matrix.at[metric, period] = None
+#
+# # Plot a heatmap
+# sns.heatmap(correlation_matrix.astype(float), annot=True, fmt=".2f", cmap='coolwarm')
+# plt.title('Heatmap of Correlation Coefficients')
+# plt.show()
